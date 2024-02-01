@@ -98,6 +98,7 @@ def prettify_spilhaus_df(
     :return: prettier Spilhaus data frame
     """
     
+    # mask for "out of bounds" values (used to filter z at the end)
     spilhaus_df['l'] = (
         (spilhaus_df['z'] <= z_lower_bound) | 
         (spilhaus_df['z'] >= z_upper_bound))
@@ -107,10 +108,17 @@ def prettify_spilhaus_df(
     spilhaus_z = np.array(spilhaus_df['z'])
     spilhaus_l = np.array(spilhaus_df['l'])
     
-    extreme = 11825474
+    extreme = 11825474 # limit of Spilhaus coordinate system
     spilhaus_res = int(np.sqrt(len(spilhaus_x)))
 
-    # augmented grid points
+    # augmented grid points (creates larger spatial grid to tesselate data)
+    # order:
+    # - original grid
+    # - repetition to left (data grid rotated 90º CCW)
+    # - repetition to right (data grid rotated 90º CCW)
+    # - repetition below (data grid rotation 90º CW)
+    # - repetition above (data grid rotated 90º CW)
+    
     aug_x = np.concatenate([
         spilhaus_x, 
         spilhaus_x - 2 * extreme,
@@ -125,6 +133,8 @@ def prettify_spilhaus_df(
         spilhaus_y - 2 * extreme,
         spilhaus_y + 2 * extreme,
     ])
+    
+    # tesselate grid data, with appropriate rotations 
     aug_z = np.concatenate([
         spilhaus_z, 
         np.fliplr(spilhaus_z.reshape(spilhaus_res, spilhaus_res).T).reshape(-1,),
@@ -140,13 +150,14 @@ def prettify_spilhaus_df(
         np.flip(spilhaus_l.reshape(spilhaus_res, spilhaus_res).T, axis=0).reshape(-1,),
     ])
     
+    # This is the bit that trims around the 'best' part of the tesselated grid to produce the "pretty" projection
     cutpoint = 1.1 * extreme
     keep = ~(
-        aug_l
+        aug_l 
         | (aug_x < -cutpoint)
         | (aug_x > cutpoint)
         | (aug_y < -cutpoint)
-        | (aug_y > cutpoint)
+        | (aug_y > cutpoint) # after defining the absolute extremes, so more trimming here.
         | (aug_y > 1.089e7 - 0.176 * aug_x)
         | (aug_y > 1.6e7 + 0.8333 * aug_x)
         | (aug_x < -0.984e7 - 0.565 * aug_y)
