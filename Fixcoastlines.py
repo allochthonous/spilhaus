@@ -10,12 +10,17 @@ and adding breaks where curves spill over edges of projection
 @author: crowan
 """
 
-import matplotlib.pylot as plt
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import cartopy.io.shapereader as shapereader
+from shapely import Polygon
 
 from spilhaus import from_lonlat_to_spilhaus_xy
+
+# prettypolygon contains vertices for polygon tracing out mask for prettified map (in Spilhaus projection coordinates)
+polydata=pd.read_csv('prettypolygon.txt', sep='\t')        
+prettypoly=Polygon([(x,y) for x,y in zip(polydata['x'], polydata['y'])])
 
 # read coastline data from cartopy
 coast = shapereader.natural_earth(resolution='110m',
@@ -49,6 +54,5 @@ for coastline in coast_latlons:
     else: # if no breaks, just use whole linestring
        ax.plot(spil_x,spil_y, color='red')  
 
+ax.plot(prettypoly['x'], prettypoly['y'], color='green')
 
-
-         
