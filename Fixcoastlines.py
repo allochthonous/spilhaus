@@ -22,7 +22,7 @@ from spilhaus import from_lonlat_to_spilhaus_xy
 polydata=pd.read_csv('prettypolygon.txt', sep='\t')        
 prettypoly=Polygon([(x,y) for x,y in zip(polydata['x'], polydata['y'])])
 
-# read coastline data from cartopy
+# read coastline data from cartopy - 50m and 10m also available?
 coast = shapereader.natural_earth(resolution='110m',
                                   category='physical',
                                   name='coastline')
@@ -32,6 +32,10 @@ coast_latlons=[geom.xy for geom in coastlines]
 
 # unit value in converted coordinates which triggers a break (based on visual inspection of histograms of diff.dx and diff.dy)
 threshold=3e6
+
+extreme=11825474
+limit=0.99*extreme
+
 
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
 
@@ -54,34 +58,37 @@ for coastline in coast_latlons:
     else: # if no breaks, just use whole linestring
        ax.plot(spil_x,spil_y, color='red')  
 
-fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
-ax.plot(polydata['x'], polydata['y'], color='green')
 
-
-# result=[]
-# for coastline in coast_latlons:
-#     lon, lat=np.array(coastline[0].tolist()),np.array(coastline[1].tolist())
-#     spil_x, spil_y=from_lonlat_to_spilhaus_xy(lon,lat)
-#     # calculates change in xy values for adjacent points in linestring
-#     diff=pd.DataFrame(np.column_stack(([a-b for a,b in zip(spil_x[1:],spil_x[:-1])], 
-#                                   [a-b for a,b in zip(spil_y[1:],spil_y[:-1])])),
-#                  columns=['dx','dy'])
-#     # finds spillover points where xy changes a lot between adjacent points 
-#     breaks=diff.index[((diff['dx']>threshold) | (diff['dx']<-threshold)) | ((diff['dy']>threshold) | (diff['dy']<-threshold))]
-#     # if breaks exist split linestring data at breakpoints and plot individually
-#     if len(breaks)>0:
-#         broken_segments=[]
-#         p=0
-#         for b in breaks:
-#             broken_segments.append(np.column_stack(([x for x in spil_x[p:b+1]],[y for y in spil_y[p:b+1]])))
-#             p=b+1
-#         np.column_stack(([x for x in spil_x[p:]],[y for y in spil_y[p:]])) #remember the last segment!
-#         result.append(broken_segments)
+result=[]
+for coastline in coast_latlons:
+    lon, lat=np.array(coastline[0].tolist()),np.array(coastline[1].tolist())
+    spil_x, spil_y=from_lonlat_to_spilhaus_xy(lon,lat)
+    # calculates change in xy values for adjacent points in linestring
+    diff=pd.DataFrame(np.column_stack(([a-b for a,b in zip(spil_x[1:],spil_x[:-1])], 
+                                  [a-b for a,b in zip(spil_y[1:],spil_y[:-1])])),
+                  columns=['dx','dy'])
+    # finds spillover points where xy changes a lot between adjacent points 
+    breaks=diff.index[((diff['dx']>threshold) | (diff['dx']<-threshold)) | ((diff['dy']>threshold) | (diff['dy']<-threshold))]
+    # if breaks exist split linestring data at breakpoints and plot individually
+    if len(breaks)>0:
+        broken_segments=[]
+        p=0
+        for b in breaks:
+            broken_segments.append(np.column_stack(([x for x in spil_x[p:b+1]],[y for y in spil_y[p:b+1]])))
+            p=b+1
+        broken_segments.append(np.column_stack(([x for x in spil_x[p:]],[y for y in spil_y[p:]]))) #remember the last segment!
+        result.append(broken_segments)
     
-# extreme=11825474
-# limit=0.99*extreme
 
-for item in result[1:2]:
+
+fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
+ax.plot(polydata['x'], polydata['y'], color='grey')
+
+
+# not working for part of second item - question is, which part? 
+# Looks like problem might be that one of the segments only has one point?
+# do we need to add a first point to stop gaps?
+for item in result:
     xmaxes, xmins = [], []
     ymaxes, ymins = [], []
     alt1=item[0]
@@ -127,5 +134,9 @@ for item in result[1:2]:
 
 
 
-
-
+fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
+ax.plot(polydata['x'], polydata['y'], color='grey')
+for item in result:
+    for thing in item:
+        ax.plot(thing[:,0], thing[:,1], color='blue')
+        

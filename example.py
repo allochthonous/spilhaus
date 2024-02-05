@@ -22,6 +22,7 @@ spilhaus_df['z'] = da.sel(lon=xr.DataArray(lon, dims="points"),
 # prettifying
 pretty_spilhaus_df = prettify_spilhaus_df(spilhaus_df)
 
+
 # plotting
 background_color = "black"
 foreground_color = "white"
@@ -44,5 +45,5 @@ ax.get_yaxis().set_ticks([])
 
 if background_color is not None:
     ax.patch.set_facecolor(background_color)
-plt.savefig('./annual_sst_spilhaus.png', transparent=True)
+#plt.savefig('./annual_sst_spilhaus.png', transparent=True)
 plt.show()
