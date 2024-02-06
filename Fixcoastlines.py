@@ -18,6 +18,17 @@ from shapely import Polygon, LineString, Point
 
 from spilhaus import from_lonlat_to_spilhaus_xy
 
+def fit_check(coords, polygon):
+    if len(coords)>1:
+        if LineString(coords).within(polygon): # whole string within Polygon
+            return coords
+        elif LineString(coords).crosses(polygon): # part of string within Polygon
+            x,y=LineString(coords).intersection(polygon).coords.xy
+            return np.column_stack(([a for a in x],[b for b in y]))
+        else: return None
+    else: # we have a single point
+        return coords
+
 # prettypolygon.txt contains vertices for polygon tracing out mask for prettified map (in Spilhaus projection coordinates)
 polydata=pd.read_csv('prettypolygon.txt', sep='\t')        
 prettypoly=Polygon([(x,y) for x,y in zip(polydata['x'], polydata['y'])])
@@ -63,10 +74,11 @@ for coastline in coast_latlons:
         # actually fit within "pretty" boundaries.
         for item in broken_segments[:-1]: #last sections don't neccessarily end at barrier!
             #ax.plot(item[:,0], item[:,1], color='green', lw=0.2)
-            result.append(['Bordering', item])
+            check=fit_check(item, prettypoly)
+            if check is not None: 
+                result.append(['Bordering', check])          
             rotated_x=item[-1][1]
             rotated_y=item[-1][0]
-        
             dx=np.flip(item[:,0]-item[-1][0],0)
             dy=np.flip(item[:,1]-item[-1][1],0)
             # checks last 
@@ -88,17 +100,37 @@ for coastline in coast_latlons:
                 elif item[0][1] < - limit: # S side - W side rotation
                     rotseg=np.column_stack((rotated_x-dy,rotated_y+dx))            
             #ax.plot(rotseg[:,0], rotseg[:,1], color='orange', lw=0.2)
-            result.append(['Rotated_Bordering', rotseg])
+            check=fit_check(rotseg, prettypoly)
+            if check is not None: 
+                result.append(['Bordering', check])
         #ax.plot(broken_segments[-1][:,0], broken_segments[-1][:,1], color='blue', lw=0.2)
-        result.append(['Bordering', broken_segments[-1]])
+        check=fit_check(broken_segments[-1], prettypoly)
+        if check is not None: 
+            result.append(['Bordering', check])
     else: # if no breaks, just use whole linestring
        #ax.plot(spil_x,spil_y, color='red', lw=0.2)
-       result.append(['Enclosed', np.column_stack(([x for x in spil_x],[y for y in spil_y]))])
+       coords=np.column_stack(([x for x in spil_x],[y for y in spil_y]))
+       if LineString(coords).is_closed:
+           result.append(['Enclosed',coords])
+       else:
+           result.append(['Open',coords])
 
 result=pd.DataFrame(result, columns=['Type','Coords'])
 
+ 
+
+
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
 ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
+for i,row in result.iterrows():
+    ax.plot(row.Coords[:,0], row.Coords[:,1], color='blue', lw=0.5)
+
+
+fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
+ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
+for i,row in result[result.Type == "Open"].iterrows():
+    ax.plot(row.Coords[:,0], row.Coords[:,1], lw=0.5)
+
 
 for i,row in result[result.Type == "Enclosed"].iterrows():
     ax.plot(row.Coords[:,0], row.Coords[:,1], color='blue', lw=0.5)
@@ -114,4 +146,8 @@ for i,row in result[result.Type != "Enclosed"].iterrows():
         if (Point(row.Coords).within(prettypoly)) or (Point(row.Coords).crosses(prettypoly)):
             ax.plot(row.Coords[:,0], row.Coords[:,1], color='green', lw=0.5)
 
-
+fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
+ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
+for i,row in result[result.Type == "Enclosed"].iterrows():
+    if LineString(row.Coords).is_closed==False: ax.plot(row.Coords[:,0], row.Coords[:,1], color='blue', lw=0.5)
+        
