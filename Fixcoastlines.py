@@ -118,11 +118,11 @@ for thing in result:
 
 
 
-polydata=pd.read_csv('prettypolygon2.txt', sep='\t')        
+polydata=pd.read_csv('prettypolygon.txt', sep='\t')        
 prettypoly=Polygon([(x,y) for x,y in zip(polydata['x'], polydata['y'])])
 
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
-ax.plot(polydata['x'], polydata['y'], color='grey')
+ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
 
 result=[]
 for coastline in coast_latlons:
