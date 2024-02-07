@@ -13,6 +13,7 @@ and adding breaks where curves spill over edges of projection
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import re
 import cartopy.io.shapereader as shapereader
 from shapely import Polygon, LineString, Point
 
@@ -28,6 +29,27 @@ def fit_check(coords, polygon):
         else: return None
     else: # we have a single point
         return coords
+    
+def plot_segs_file(file, ax, colour='black', order=1):
+    f=open(file, 'r')
+    ridgeseg=[]
+    flag=0
+    for line in f:
+        if re.match('^>', line):
+            if flag==1: 
+                seglat=[]
+                seglong=[]
+                for data in ridgeseg:
+                    data=data.rstrip('\n')
+                    seglong.append(float(data.split("\t")[0]))
+                    seglat.append(float(data.split("\t")[1]))
+                spil_x, spil_y=from_lonlat_to_spilhaus_xy(np.array(seglong),np.array(seglat))
+                ax.plot(spil_x, spil_y, color=colour, lw=0.8, zorder=order)
+            ridgeseg = []
+            flag=1
+        else:
+            ridgeseg.append(line)
+    f.close()
 
 # prettypolygon.txt contains vertices for polygon tracing out mask for prettified map (in Spilhaus projection coordinates)
 polydata=pd.read_csv('prettypolygon.txt', sep='\t')        
@@ -117,8 +139,16 @@ for coastline in coast_latlons:
 
 result=pd.DataFrame(result, columns=['Type','Coords'])
 
- 
+# Initial look at plotting plate boundaries: clearly some edge issues - will want to break this out into separate script to process
 
+fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
+ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
+for i,row in result.iterrows():
+     ax.plot(row.Coords[:,0], row.Coords[:,1], color='grey', lw=0.5)
+
+plot_segs_file("../Misc/Ridgesegs.txt", ax, 'red')
+plot_segs_file("../Misc/Subsegs.txt", ax, 'purple')
+plot_segs_file("../Misc/othersegs.txt", ax, 'orange')
 
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
 ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
@@ -126,25 +156,6 @@ for i,row in result.iterrows():
     ax.plot(row.Coords[:,0], row.Coords[:,1], color='blue', lw=0.5)
 
 
-fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
-ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
-for i,row in result[result.Type == "Open"].iterrows():
-    ax.plot(row.Coords[:,0], row.Coords[:,1], lw=0.5)
-
-
-for i,row in result[result.Type == "Enclosed"].iterrows():
-    ax.plot(row.Coords[:,0], row.Coords[:,1], color='blue', lw=0.5)
-
-for i,row in result[result.Type != "Enclosed"].iterrows():
-    if len(row.Coords)>1:
-        if LineString(row.Coords).within(prettypoly):
-            ax.plot(row.Coords[:,0], row.Coords[:,1], color='green', lw=0.5)
-        elif LineString(row.Coords).crosses(prettypoly):
-            x,y=LineString(row.Coords).intersection(prettypoly).coords.xy
-            ax.plot(x, y, color='orange', lw=0.5)
-    else:
-        if (Point(row.Coords).within(prettypoly)) or (Point(row.Coords).crosses(prettypoly)):
-            ax.plot(row.Coords[:,0], row.Coords[:,1], color='green', lw=0.5)
 
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
 ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
