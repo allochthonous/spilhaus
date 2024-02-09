@@ -60,9 +60,67 @@ def line_lonlat_to_spilhaus_xy(coords, threshold=3e6):
     else: # if no break just return list with single coordinate array
         return [np.column_stack(([x for x in spil_x],[y for y in spil_y]))]
     
+def line_lonlat_to_pretty_spilhaus_xy(coords, prettypoly, limit=11707219.26):  
+    """
+    Wrapper to line_lonlat_to_spilhaus_xy function, which rotates and filters/splits
+    segments that touch edge of map so that they conist of segments that fall within the polygon that fully matches 
+    projection space to the boundaries of the ocean basin.
+
+    Parameters
+    ----------
+    coords : nummpy array of longitude (range -180 to 180) - latitude (range -90 to 90) pairs
+    prettypoly : shapely Polygon definiing plot limits, in Spilhaus x-y pairs
+    limit: defines 'edge region' of projection space: 99% of absolute outer value of 11825474
+
+    Returns
+    -------
+    List of nmupy arrays of line segments that fall within the defined polygon: [Spilhaus x (easting), Spillhuas y (northing)]
+
+    """
+    
+    segments=line_lonlat_to_spilhaus_xy(coords)
+    
+    result=[]
+    for segment in segments: 
+    # see if any part of segment falls within confines of "pretty" projection space and adds it to returned result
+        check=fit_check(segment, prettypoly) 
+        if check is not None: 
+            result.append(check)     
+        # then rotates segment back to border of projection space it crossed and does the same thing.
+        rotated_x=segment[-1][1]
+        rotated_y=segment[-1][0]
+        dx=np.flip(segment[:,0]-segment[-1][0],0)
+        dy=np.flip(segment[:,1]-segment[-1][1],0)
+        if segment[-1][0]> limit: # E side - N side rotation
+             rotseg=np.column_stack((rotated_x+dy,rotated_y-dx))
+        elif segment[-1][1]> limit: # N side - E side rotation
+             rotseg=np.column_stack((rotated_x-dy,rotated_y+dx))
+        elif segment[-1][0] < - limit: # W side - S side rotation
+            rotseg=np.column_stack((rotated_x+dy,rotated_y-dx))
+        elif segment[-1][1] < - limit: # S side - W side rotation
+            rotseg=np.column_stack((rotated_x-dy,rotated_y+dx))
+        check=fit_check(rotseg, prettypoly)
+        if check is not None: 
+            result.append(check)
+    return result
+    
+def fit_check(coords, polygon):
+    """
+    Checks if linestring definied by coords    
+    
     
 
-def fit_check(coords, polygon):
+    Parameters
+    ----------
+    coords : nummpy array of Spilhaus easting (x) and northing (y) pairs
+    polygon : shapely Polygon definiing plot limits, also in Spilhaus x-y pairs
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    """
     if len(coords)>1:
         if LineString(coords).within(polygon): # whole string within Polygon
             return coords
@@ -109,7 +167,7 @@ coast_latlons=[geom.xy for geom in coastlines]
 
 
 extreme=11825474
-limit=0.99*extreme
+limit=0.95*extreme
 
 # load confining polygon for "pretty" map. Modified vertices to best fit coastline.
 polydata=pd.read_csv('prettypolygon.txt', sep='\t')        
