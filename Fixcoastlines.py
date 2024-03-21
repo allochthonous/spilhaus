@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import cartopy.io.shapereader as shapereader
-from shapely import Polygon, Point
+from shapely import Polygon, LineString
 
 from spilhaus import from_lonlat_to_spilhaus_xy
 
@@ -129,7 +129,7 @@ def fit_check(coords, polygon):
         if LineString(coords).within(polygon): # whole string within Polygon
             return coords
         elif LineString(coords).crosses(polygon): # part of string within Polygon
-            x,y=LineString(coords).intersection(polygon).coords.xy
+            x,y=LineString(coords).intersection(polygon).coords.xy # <- THROWS error when multiple segements fall within polygon boundary.
             return np.column_stack(([a for a in x],[b for b in y]))
         else: return None
     else: # we have a single point
@@ -141,12 +141,20 @@ polydata=pd.read_csv('prettypolygon.txt', sep='\t')
 prettypoly=Polygon([(x,y) for x,y in zip(polydata['x'], polydata['y'])])
 
 # read coastline data from cartopy - 50m and 10m also available?
-coast = shapereader.natural_earth(resolution='110m',
+coast = shapereader.natural_earth(resolution='50m',
                                   category='physical',
                                   name='coastline')
 
 coastlines = shapereader.Reader(coast).geometries()
-coast_latlons=[geom.xy for geom in coastlines]
+coast_latlons=[]
+
+for geom in coastlines:
+    if geom.geom_type == 'LineString':
+        coast_latlons.append(geom.xy)
+    elif geom.geom_type == 'MultiLineString':
+        for subgeom in geom.geoms:
+            coast_latlons.append(subgeom.xy)
+
 
 
 
@@ -221,6 +229,8 @@ for coastline in coast_latlons:
        else:
            result.append(['Open',coords])
 
+
+# Note: with higher resolution coastline fit_check threw an error when intersection generated multiple linestrings rather than just one.
 
 coastresult=pd.DataFrame(result, columns=['Type','Coords'])
 
@@ -302,9 +312,7 @@ ax.plot(merged_line[:,0], merged_line[:,1], color='red', lw=0.5)
 
 
 test=np.concatenate([[coastresult[coastresult.Type == "Open"].iloc[7]['Coords'][-1]],coastresult[coastresult.Type == "Open"].iloc[6]['Coords'],coastresult[coastresult.Type == "Open"].iloc[7]['Coords']])
-fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
-ax.plot(test[:,0], test[:,1], color='red', lw=0.5)
-
+Lin
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
 ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
 for row in bordering_segments[23:]:
