@@ -15,49 +15,9 @@ import numpy as np
 import pandas as pd
 import cartopy.io.shapereader as shapereader
 from shapely import Polygon, LineString
+from scipy.spatial import distance_matrix
 
-from spilhaus import from_lonlat_to_spilhaus_xy
-
-
-def line_lonlat_to_spilhaus_xy(coords, threshold=3e6):
-    """
-    Wrapper to original from_lonlat_to_spilhaus_xy function, 
-    tuned for linestring-like data that can spillover limits of projection;
-    will detect breaks and return them as seperate lists of Spilhaus x and y 
- 
-    Parameters
-    ----------
-    coords: nummpy array of longitude (range -180 to 180) - latitude (range -90 to 90) pairs
-
-    threshold: unit value in Sphilhaus coordinates which triggers a break 
-    (based on visual inspection of histograms of diff.dx and diff.dy, so probably 
-    doesn't need to change).
-
-    Returns
-    -------
-    List of nmupy arrays of line segments: [Spilhaus x (easting), Spillhuas y (northing)]
-
-    """
-    # initial conversion
-    spil_x, spil_y=from_lonlat_to_spilhaus_xy(coords[:,0],coords[:,1])
-    # calculates change in xy values for adjacent points in linestring
-    diff=pd.DataFrame(np.column_stack(([a-b for a,b in zip(spil_x[1:],spil_x[:-1])], 
-                                  [a-b for a,b in zip(spil_y[1:],spil_y[:-1])])),
-                  columns=['dx','dy'])
-    # finds spillover points where xy changes a lot between adjacent points 
-    breaks=diff.index[((diff['dx']>threshold) | (diff['dx']<-threshold)) | ((diff['dy']>threshold) | (diff['dy']<-threshold))]
-    # if breaks exist split linestring data at breakpoints
-    if len(breaks)>0:
-        broken_segments=[]
-        p=0
-        for b in breaks:
-            broken_segments.append(np.column_stack(([x for x in spil_x[p:b+1]],[y for y in spil_y[p:b+1]])))
-            p=b+1
-        broken_segments.append(np.column_stack(([x for x in spil_x[p:]],[y for y in spil_y[p:]])))  # don't forget final segment!
-        # return list of coordinate arrays for each segment
-        return broken_segments
-    else: # if no break just return list with single coordinate array
-        return [np.column_stack(([x for x in spil_x],[y for y in spil_y]))]
+from spilhaus import from_lonlat_to_spilhaus_xy, line_lonlat_to_spilhaus_xy
     
 def line_lonlat_to_pretty_spilhaus_xy(coords, prettypoly, limit=11707219.26):  
     """
@@ -129,8 +89,20 @@ def fit_check(coords, polygon):
         if LineString(coords).within(polygon): # whole string within Polygon
             return coords
         elif LineString(coords).crosses(polygon): # part of string within Polygon
-            x,y=LineString(coords).intersection(polygon).coords.xy # <- THROWS error when multiple segements fall within polygon boundary.
-            return np.column_stack(([a for a in x],[b for b in y]))
+            # find bits which fall within polygon 
+            inside_bits=LineString(coords).intersection(polygon)
+            if inside_bits.geom_type== 'LineString':
+                x,y=inside_bits.coords.xy
+                return np.column_stack(([a for a in x],[b for b in y]))
+            elif inside_bits.geom_type== 'MultiLineString': 
+                # not sure if this should really happen if polygon is correctly adjusted...
+                # joining segments should just trace edge of polygon and simplifies things downstream.
+                result=[]
+                for subgeom in inside_bits.geoms:
+                    x,y=subgeom.xy
+                    result.append(np.column_stack(([a for a in x],[b for b in y])))
+                return np.concatenate(result)
+            else: return None
         else: return None
     else: # we have a single point
         return coords
@@ -155,15 +127,12 @@ for geom in coastlines:
         for subgeom in geom.geoms:
             coast_latlons.append(subgeom.xy)
 
-
-
-
-
-
-
 extreme=11825474
 limit=0.95*extreme
 threshold=3e6
+
+# fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
+# ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
 
 result=[]
 for coastline in coast_latlons:
@@ -187,7 +156,7 @@ for coastline in coast_latlons:
         # need to rotate the segments into the appropriate position "outside" the projection limits, then find which sections
         # actually fit within "pretty" boundaries.
         for item in broken_segments[:-1]: #last sections don't neccessarily end at barrier!
-            #ax.plot(item[:,0], item[:,1], color='green', lw=0.2)
+            # ax.plot(item[:,0], item[:,1], color='green', lw=0.2)
             check=fit_check(item, prettypoly)
             if check is not None: 
                 result.append(['Bordering', check])          
@@ -213,24 +182,24 @@ for coastline in coast_latlons:
                     rotseg=np.column_stack((rotated_x+dy,rotated_y-dx))
                 elif item[0][1] < - limit: # S side - W side rotation
                     rotseg=np.column_stack((rotated_x-dy,rotated_y+dx))            
-            #ax.plot(rotseg[:,0], rotseg[:,1], color='orange', lw=0.2)
+            # ax.plot(rotseg[:,0], rotseg[:,1], color='orange', lw=0.2)
             check=fit_check(rotseg, prettypoly)
             if check is not None: 
                 result.append(['Bordering', check])
-        #ax.plot(broken_segments[-1][:,0], broken_segments[-1][:,1], color='blue', lw=0.2)
+        # ax.plot(broken_segments[-1][:,0], broken_segments[-1][:,1], color='blue', lw=0.2)
         check=fit_check(broken_segments[-1], prettypoly)
         if check is not None: 
             result.append(['Bordering', check])
     else: # if no breaks, just use whole linestring
-       #ax.plot(spil_x,spil_y, color='red', lw=0.2)
+       # ax.plot(spil_x,spil_y, color='red', lw=0.2)
        coords=np.column_stack(([x for x in spil_x],[y for y in spil_y]))
-       if LineString(coords).is_closed:
-           result.append(['Enclosed',coords])
-       else:
-           result.append(['Open',coords])
-
-
-# Note: with higher resolution coastline fit_check threw an error when intersection generated multiple linestrings rather than just one.
+       if fit_check(coords, prettypoly) is not None:
+           # there are some handfall of segments (mostly small islands) that lie outside polygon.
+           # technically these should be rotated too but currently just excluding
+           if LineString(coords).is_closed:
+               result.append(['Enclosed',coords])
+           else:
+               result.append(['Open',coords])
 
 coastresult=pd.DataFrame(result, columns=['Type','Coords'])
 
@@ -240,15 +209,16 @@ coastresult=pd.DataFrame(result, columns=['Type','Coords'])
 # 3. "Open" are unclosed linestrings that fall entirely within the pretty polygon: Includes a two small islands split into two segements
 
 # This gets us the segments we want to join into a single bordering coastline segment
-bordering_segments=pd.concat([coastresult[coastresult.Type == "Open"][:5],coastresult[coastresult.Type == "Bordering"]])['Coords']
+bordering_segments=coastresult[coastresult.Type == "Bordering"]['Coords'].to_list()
+bordering_segments.append(coastresult[coastresult.Type == "Open"].iloc[5]['Coords'])
 
 # Bit of brute forcing in here, but it generates a continuous outer coastline without obvious out of sequence jumping
-merged_line = bordering_segments.iloc[0][::-1]  # Start with the first segment
-remaining_lines = bordering_segments.iloc[1:-2].tolist()  # segments to join to first: last 2 are tiny and screw things up
+merged_line = bordering_segments[0][::-1]  # Start with the first segment
+remaining_lines = bordering_segments[1:]  # segments to join to first: last 2 are tiny and screw things up
 # This works. 
 i=0
-#while remaining_lines:
-while i<23:
+while remaining_lines:
+#while i<23:
     # Calculate distances between ends of merged line and ends of each remaining segment
     distances = np.array([np.concatenate(distance_matrix(
         merged_line[[0, -1]], [line[0], line[-1]])) for line in remaining_lines])
@@ -275,13 +245,16 @@ while i<23:
     del remaining_lines[nearest_line_index]
     i=i+1
 
-# A bit of jiggery-pokery to fix the one place the join is bad and close the bounding coast polygon
-merged_line=np.concatenate([[merged_line[-1]],merged_line[:14][::-1],merged_line[14:]])
+
+# Drop last point which does something weird, and close polygon.
+merged_line=np.concatenate([merged_line[:-1],[merged_line[0]]])
 
 # Combine merged borderling coastline with closed polygons within the ocean basins
 final_types, final_coords=['Bordering'],[merged_line]
 final_types.extend(coastresult[coastresult.Type == "Enclosed"]['Type'].to_list())
 final_coords.extend(coastresult[coastresult.Type == "Enclosed"]['Coords'].to_list())
+
+
 
 # Add a couple of islands that are split in two for some reason.
 final_types.extend(['Enclosed','Enclosed'])
@@ -311,6 +284,14 @@ ax.plot(merged_line[:,0], merged_line[:,1], color='red', lw=0.5)
 
 
 
+fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
+ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
+for coastline in coast_latlons:
+    lon, lat=np.array(coastline[0].tolist()),np.array(coastline[1].tolist())
+    spil_x, spil_y=from_lonlat_to_spilhaus_xy(lon,lat)
+    ax.plot(spil_x, spil_y, color='red', lw=0.5)
+
+
 test=np.concatenate([[coastresult[coastresult.Type == "Open"].iloc[7]['Coords'][-1]],coastresult[coastresult.Type == "Open"].iloc[6]['Coords'],coastresult[coastresult.Type == "Open"].iloc[7]['Coords']])
 Lin
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
@@ -327,11 +308,13 @@ for i,row in coastresult[coastresult.Type == "Enclosed"].iterrows():
     
  
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
-ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
+ax.plot(polydata['x'][:5], polydata['y'][:5], color='grey', lw=0.5)
 for i,row in coastresult[coastresult.Type == "Bordering"].iterrows():
     ax.plot(row.Coords[:,0], row.Coords[:,1], color='red', lw=0.5)
+row=coastresult[coastresult.Type == "Open"].iloc[5]
+ax.plot(row.Coords[:,0], row.Coords[:,1], color='blue', lw=0.5)
         
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
 ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
-for i,row in coastresult[coastresult.Type == "Open"][:5].iterrows():
+for i,row in coastresult[coastresult.Type == "Open"].iterrows():
     ax.plot(row.Coords[:,0], row.Coords[:,1], color='red', lw=0.5)

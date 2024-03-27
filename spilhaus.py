@@ -61,7 +61,47 @@ def from_lonlat_to_spilhaus_xy(
     spilhaus_y = (adams_x - adams_y) / np.sqrt(2)
     
     return spilhaus_x, spilhaus_y
-    
+
+def line_lonlat_to_spilhaus_xy(coords, threshold=3e6):
+    """
+    Wrapper to original from_lonlat_to_spilhaus_xy function, 
+    tuned for linestring-like data that can spillover limits of projection;
+    will detect breaks and return them as seperate lists of Spilhaus x and y 
+ 
+    Parameters
+    ----------
+    coords: nummpy array of longitude (range -180 to 180) - latitude (range -90 to 90) pairs
+
+    threshold: unit value in Sphilhaus coordinates which triggers a break 
+    (based on visual inspection of histograms of diff.dx and diff.dy, so probably 
+    doesn't need to change).
+
+    Returns
+    -------
+    List of nmupy arrays of line segments: [Spilhaus x (easting), Spillhuas y (northing)]
+
+    """
+    # initial conversion
+    spil_x, spil_y=from_lonlat_to_spilhaus_xy(coords[:,0],coords[:,1])
+    # calculates change in xy values for adjacent points in linestring
+    diff=pd.DataFrame(np.column_stack(([a-b for a,b in zip(spil_x[1:],spil_x[:-1])], 
+                                  [a-b for a,b in zip(spil_y[1:],spil_y[:-1])])),
+                  columns=['dx','dy'])
+    # finds spillover points where xy changes a lot between adjacent points 
+    breaks=diff.index[((diff['dx']>threshold) | (diff['dx']<-threshold)) | ((diff['dy']>threshold) | (diff['dy']<-threshold))]
+    # if breaks exist split linestring data at breakpoints
+    if len(breaks)>0:
+        broken_segments=[]
+        p=0
+        for b in breaks:
+            broken_segments.append(np.column_stack(([x for x in spil_x[p:b+1]],[y for y in spil_y[p:b+1]])))
+            p=b+1
+        broken_segments.append(np.column_stack(([x for x in spil_x[p:]],[y for y in spil_y[p:]])))  # don't forget final segment!
+        # return list of coordinate arrays for each segment
+        return broken_segments
+    else: # if no break just return list with single coordinate array
+        return [np.column_stack(([x for x in spil_x],[y for y in spil_y]))]
+
     
 def make_spilhaus_xy_gridpoints(
         spilhaus_res: int = 1000
