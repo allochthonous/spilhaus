@@ -293,7 +293,7 @@ for coastline in coast_latlons:
 
 
 test=np.concatenate([[coastresult[coastresult.Type == "Open"].iloc[7]['Coords'][-1]],coastresult[coastresult.Type == "Open"].iloc[6]['Coords'],coastresult[coastresult.Type == "Open"].iloc[7]['Coords']])
-Lin
+
 fig, ax = plt.subplots(1, 1, figsize=(16,16), dpi=300)
 ax.plot(polydata['x'], polydata['y'], color='grey', lw=0.5)
 for row in bordering_segments[23:]:

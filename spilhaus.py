@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pyproj import Proj, Transformer
 from numpy import sin, cos, tan, arcsin, arctan, arctan2, pi
-
+from shapely import LineString
 
 def from_lonlat_to_spilhaus_xy(
         longitude: npt.NDArray,
@@ -290,3 +290,92 @@ def from_spilhaus_xy_to_lonlat(
     latitude = lat * 180 / pi
     
     return longitude, latitude
+
+def line_lonlat_to_pretty_spilhaus_xy(coords, prettypoly, limit=11707219.26):  
+    """
+    Wrapper to line_lonlat_to_spilhaus_xy function, which rotates and filters/splits
+    segments that touch edge of map so that they conist of segments that fall within the polygon that fully matches 
+    projection space to the boundaries of the ocean basin.
+
+    Parameters
+    ----------
+    coords : nummpy array of longitude (range -180 to 180) - latitude (range -90 to 90) pairs
+    prettypoly : shapely Polygon definiing plot limits, in Spilhaus x-y pairs
+    limit: defines 'edge region' of projection space: 99% of absolute outer value of 11825474
+
+    Returns
+    -------
+    List of nmupy arrays of line segments that fall within the defined polygon: [Spilhaus x (easting), Spillhuas y (northing)]
+
+    """
+    
+    segments=line_lonlat_to_spilhaus_xy(coords)
+    
+    result=[]
+    if len(segments)>1:
+        for segment in segments: 
+        # see if any part of segment falls within confines of "pretty" projection space and adds it to returned result
+            check=fit_check(segment, prettypoly) 
+            if check is not None: 
+                result.append(check)     
+            # then rotates segment back to border of projection space it crossed and does the same thing.
+            rotated_x=segment[-1][1]
+            rotated_y=segment[-1][0]
+            dx=np.flip(segment[:,0]-segment[-1][0],0)
+            dy=np.flip(segment[:,1]-segment[-1][1],0)
+            if segment[-1][0]> limit: # E side - N side rotation
+                 rotseg=np.column_stack((rotated_x+dy,rotated_y-dx))
+            elif segment[-1][1]> limit: # N side - E side rotation
+                 rotseg=np.column_stack((rotated_x-dy,rotated_y+dx))
+            elif segment[-1][0] < - limit: # W side - S side rotation
+                rotseg=np.column_stack((rotated_x+dy,rotated_y-dx))
+            elif segment[-1][1] < - limit: # S side - W side rotation
+                rotseg=np.column_stack((rotated_x-dy,rotated_y+dx))
+            check=fit_check(rotseg, prettypoly)
+            if check is not None: 
+                result.append(check)
+    else: # don't need to bother with the rotation bit for a single segment - not sure if fit check strictly needed either
+        check=fit_check(segments[0], prettypoly) 
+        if check is not None: 
+            result.append(check)  
+    return result
+    
+def fit_check(coords, polygon):
+    """
+    Checks if linestring defined by coords lies within the polygon, and returns
+    the part of it that does.
+
+
+    Parameters
+    ----------
+    coords : nummpy array of Spilhaus easting (x) and northing (y) pairs
+    polygon : shapely Polygon definiing plot limits, also in Spilhaus x-y pairs
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    """
+    if len(coords)>1:
+        if LineString(coords).within(polygon): # whole string within Polygon
+            return coords
+        elif LineString(coords).crosses(polygon): # part of string within Polygon
+            # find bits which fall within polygon 
+            inside_bits=LineString(coords).intersection(polygon)
+            if inside_bits.geom_type== 'LineString':
+                x,y=inside_bits.coords.xy
+                return np.column_stack(([a for a in x],[b for b in y]))
+            elif inside_bits.geom_type== 'MultiLineString': 
+                # not sure if this should really happen if polygon is correctly adjusted...
+                # joining segments should just trace edge of polygon and simplifies things downstream.
+                result=[]
+                for subgeom in inside_bits.geoms:
+                    x,y=subgeom.xy
+                    result.append(np.column_stack(([a for a in x],[b for b in y])))
+                return np.concatenate(result)
+            else: return None
+        else: return None
+    else: # we have a single point
+        return coords
+    
